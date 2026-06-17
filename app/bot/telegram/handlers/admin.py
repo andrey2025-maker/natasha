@@ -69,7 +69,7 @@ def build_admin_router(container: AppContainer) -> Router:
             return False
         return await container.admin_service.is_admin(message.from_user.id)
 
-    @router.message(F.text == "Админ")
+    @router.message(F.text.in_({"Админ", "🛠 Админ"}))
     async def admin_root(message: Message) -> None:
         if not await _ensure_admin(message):
             return

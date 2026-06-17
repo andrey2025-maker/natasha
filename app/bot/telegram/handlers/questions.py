@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from aiogram import F, Router
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from app.bot.telegram.callbacks import CallbackAuthError, CallbackCodec
@@ -27,7 +28,7 @@ def build_questions_router(container: AppContainer) -> Router:
         default_text="Раздел контактов пока не заполнен.",
     )
 
-    @router.message(F.text == "Запрещенные товары")
+    @router.message(F.text.in_({"Запрещенные товары", "🚫 Запрещенные товары"}))
     async def prohibited_goods(message: Message) -> None:
         text = await prohibited_store.get_text()
         media_items = await prohibited_store.get_media_items()
@@ -35,15 +36,15 @@ def build_questions_router(container: AppContainer) -> Router:
         for media in media_items:
             await send_stored_media_to_telegram(message.bot, message.chat.id, media)
 
-    @router.message(F.text == "Как работает доставка")
+    @router.message(F.text.in_({"Как работает доставка", "🚚 Как работает доставка"}))
     async def delivery_info(message: Message) -> None:
         await _send_static_content(message, delivery_store)
 
-    @router.message(F.text == "Наши контакты")
+    @router.message(F.text.in_({"Наши контакты", "☎️ Наши контакты"}))
     async def contacts_info(message: Message) -> None:
         await _send_static_content(message, contacts_store)
 
-    @router.message(F.text == "Вопросы")
+    @router.message(F.text.in_({"Вопросы", "❓ Вопросы"}))
     async def faq_root(message: Message) -> None:
         if not message.from_user:
             return
@@ -122,7 +123,12 @@ async def _send_section(
     text = "\n".join(body_lines)
 
     if edit:
-        await message.edit_text(text, parse_mode="HTML", reply_markup=keyboard)
+        try:
+            await message.edit_text(text, parse_mode="HTML", reply_markup=keyboard)
+        except TelegramBadRequest as exc:
+            if "message is not modified" in str(exc).lower():
+                return
+            raise
     else:
         await message.answer(text, parse_mode="HTML", reply_markup=keyboard)
 

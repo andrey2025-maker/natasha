@@ -30,7 +30,7 @@ def build_buyout_router(container: AppContainer) -> Router:
             kwargs["reply_markup"] = response.reply_markup
         await message.answer(response.text, **kwargs)
 
-    @router.message(F.text == "Заказ выкупа")
+    @router.message(F.text.in_({"Заказ выкупа", "🛍 Заказ выкупа"}))
     async def start_buyout(message: Message) -> None:
         if not message.from_user:
             return
@@ -38,7 +38,7 @@ def build_buyout_router(container: AppContainer) -> Router:
         response = await container.buyout_flow.start(session)
         await _reply(message, response)
 
-    @router.message(F.text == "Мои заказы")
+    @router.message(F.text.in_({"Мои заказы", "📦 Мои заказы"}))
     async def show_my_orders(message: Message) -> None:
         if not message.from_user:
             return
@@ -53,7 +53,7 @@ def build_buyout_router(container: AppContainer) -> Router:
             )
         await _reply(message, response)
 
-    @router.message(F.text == "Фильтры заказов")
+    @router.message(F.text.in_({"Фильтры заказов", "🎛 Фильтры заказов"}))
     async def show_filters(message: Message) -> None:
         if not message.from_user:
             return

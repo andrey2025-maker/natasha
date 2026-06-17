@@ -14,7 +14,7 @@ from app.domain.models import OutboundMessage
 from app.services.flows.profile_flow import FlowResponse
 
 
-PROFILE_BUTTONS = {"Профиль", "Заполнить профиль"}
+PROFILE_BUTTONS = {"Профиль", "👤 Профиль", "Заполнить профиль"}
 CONFIRM_BUTTONS = {"Да", "Имя", "Тел.", "Город"}
 SYNC_BUTTONS = {"Есть профиль ВК"}
 PROFILE_CALLBACK_ACTIONS = {
@@ -82,7 +82,7 @@ def build_profile_router(container: AppContainer) -> Router:
                 )
             )
 
-    @router.message(F.text == "Профиль")
+    @router.message(F.text.in_({"Профиль", "👤 Профиль"}))
     async def profile_menu(message: Message) -> None:
         if not message.from_user:
             return

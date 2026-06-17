@@ -9,11 +9,11 @@ from app.bot.telegram.callbacks import CallbackCodec
 
 def main_menu_keyboard(include_admin: bool = False) -> ReplyKeyboardMarkup:
     rows = [
-        [KeyboardButton(text="Профиль"), KeyboardButton(text="Вопросы")],
-        [KeyboardButton(text="Запрещенные товары"), KeyboardButton(text="Наши контакты")],
+        [KeyboardButton(text="👤 Профиль"), KeyboardButton(text="❓ Вопросы")],
+        [KeyboardButton(text="🚫 Запрещенные товары"), KeyboardButton(text="☎️ Наши контакты")],
     ]
     if include_admin:
-        rows.append([KeyboardButton(text="Админ")])
+        rows.append([KeyboardButton(text="🛠 Админ")])
     return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True)
 
 
