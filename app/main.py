@@ -38,9 +38,9 @@ async def run_telegram_bot() -> None:
     dispatcher = Dispatcher()
     dispatcher.include_router(build_start_router(container))
     dispatcher.include_router(build_questions_router(container))
-    dispatcher.include_router(build_profile_router(container))
     dispatcher.include_router(build_buyout_router(container))
     dispatcher.include_router(build_admin_router(container))
+    dispatcher.include_router(build_profile_router(container))
 
     logger.info("Telegram bot started")
     vk_worker_task = _create_guarded_task("vk_outbox_worker", run_vk_outbox_worker(container), error_notifier)

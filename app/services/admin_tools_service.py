@@ -566,15 +566,29 @@ class GroupTopicsStore:
 
     async def clear_tg(self) -> None:
         data = await self.get()
-        for key in ["tg_chat_id", "tg_logs_topic_id", "tg_payment_topic_id", "tg_questions_topic_id"]:
+        for key in [
+            "tg_chat_id",
+            "tg_logs_topic_id",
+            "tg_payment_topic_id",
+            "tg_questions_topic_id",
+            "tg_buyout_topic_id",
+        ]:
             data.pop(key, None)
         await self._save(data)
 
-    async def set_tg_topics(self, logs_topic_id: int, payment_topic_id: int, questions_topic_id: int) -> None:
+    async def set_tg_topics(
+        self,
+        logs_topic_id: int,
+        payment_topic_id: int,
+        questions_topic_id: int,
+        buyout_topic_id: int | None = None,
+    ) -> None:
         data = await self.get()
         data["tg_logs_topic_id"] = int(logs_topic_id)
         data["tg_payment_topic_id"] = int(payment_topic_id)
         data["tg_questions_topic_id"] = int(questions_topic_id)
+        if buyout_topic_id is not None:
+            data["tg_buyout_topic_id"] = int(buyout_topic_id)
         await self._save(data)
 
     async def get_tg_topic(self, kind: str) -> tuple[int | None, int | None]:
@@ -587,6 +601,7 @@ class GroupTopicsStore:
             "logs": "tg_logs_topic_id",
             "payment": "tg_payment_topic_id",
             "questions": "tg_questions_topic_id",
+            "buyout": "tg_buyout_topic_id",
         }
         topic_key = key_map.get(kind)
         if not topic_key:
@@ -606,6 +621,226 @@ class GroupTopicsStore:
 
     async def _save(self, data: dict) -> None:
         await self._db.set("group_topics", data)
+
+
+@dataclass(slots=True)
+class TopicDialogStore:
+    database_dsn: str
+
+    @property
+    def _db(self) -> DbSettingsStore:
+        return DbSettingsStore(self.database_dsn)
+
+    async def get_user_topic(self, chat_id: int, platform: str, platform_user_id: int) -> int | None:
+        payload = await self._db.get("topic_dialog_user_topics")
+        if not payload:
+            return None
+        key = self._user_key(chat_id, platform, platform_user_id)
+        raw = payload.get(key)
+        if not raw:
+            return None
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            return None
+
+    async def set_user_topic(self, chat_id: int, platform: str, platform_user_id: int, topic_id: int) -> None:
+        payload = await self._db.get("topic_dialog_user_topics") or {}
+        key = self._user_key(chat_id, platform, platform_user_id)
+        payload[key] = int(topic_id)
+        await self._db.set("topic_dialog_user_topics", payload)
+
+    async def bind_topic_message_to_user(
+        self,
+        chat_id: int,
+        topic_id: int | None,
+        topic_message_id: int,
+        platform: str,
+        platform_user_id: int,
+    ) -> None:
+        payload = await self._db.get("topic_dialog_links") or {}
+        topic_key = self._topic_key(chat_id, topic_id)
+        topic_payload = payload.get(topic_key)
+        if not isinstance(topic_payload, dict):
+            topic_payload = {}
+        topic_payload[str(int(topic_message_id))] = {
+            "platform": platform,
+            "platform_user_id": int(platform_user_id),
+        }
+        # Keep links compact per topic.
+        if len(topic_payload) > 500:
+            keys = sorted(topic_payload.keys(), key=lambda item: int(item))
+            for stale in keys[:-500]:
+                topic_payload.pop(stale, None)
+        payload[topic_key] = topic_payload
+        await self._db.set("topic_dialog_links", payload)
+
+    async def resolve_user_by_topic_message(
+        self,
+        chat_id: int,
+        topic_id: int | None,
+        topic_message_id: int,
+    ) -> tuple[str, int] | None:
+        payload = await self._db.get("topic_dialog_links")
+        if not payload:
+            return None
+        topic_key = self._topic_key(chat_id, topic_id)
+        topic_payload = payload.get(topic_key)
+        if not isinstance(topic_payload, dict):
+            return None
+        raw = topic_payload.get(str(int(topic_message_id)))
+        if not isinstance(raw, dict):
+            return None
+        platform = str(raw.get("platform", "")).strip().lower()
+        user_raw = raw.get("platform_user_id")
+        try:
+            user_id = int(user_raw)
+        except (TypeError, ValueError):
+            return None
+        if not platform:
+            return None
+        return platform, user_id
+
+    async def resolve_user_by_topic(
+        self,
+        chat_id: int,
+        topic_id: int | None,
+    ) -> tuple[str, int] | None:
+        payload = await self._db.get("topic_dialog_user_topics")
+        if not isinstance(payload, dict):
+            return None
+        expected = int(topic_id) if topic_id else 0
+        prefix = f"{int(chat_id)}:"
+        for raw_key, raw_topic in payload.items():
+            if not isinstance(raw_key, str):
+                continue
+            if not raw_key.startswith(prefix):
+                continue
+            try:
+                mapped_topic = int(raw_topic)
+            except (TypeError, ValueError):
+                continue
+            if mapped_topic != expected:
+                continue
+            parts = raw_key.split(":", maxsplit=2)
+            if len(parts) != 3:
+                continue
+            platform = parts[1].strip().lower()
+            try:
+                platform_user_id = int(parts[2])
+            except (TypeError, ValueError):
+                continue
+            if platform:
+                return platform, platform_user_id
+        return None
+
+    @staticmethod
+    def _topic_key(chat_id: int, topic_id: int | None) -> str:
+        return f"{int(chat_id)}:{int(topic_id) if topic_id else 0}"
+
+    @staticmethod
+    def _user_key(chat_id: int, platform: str, platform_user_id: int) -> str:
+        return f"{int(chat_id)}:{platform}:{int(platform_user_id)}"
+
+
+@dataclass(slots=True)
+class BuyoutQuoteDraftStore:
+    database_dsn: str
+
+    @property
+    def _db(self) -> DbSettingsStore:
+        return DbSettingsStore(self.database_dsn)
+
+    async def get(self, order_number: str) -> dict | None:
+        payload = await self._db.get(self._key(order_number))
+        if not isinstance(payload, dict):
+            return None
+        return payload
+
+    async def save(
+        self,
+        order_number: str,
+        *,
+        price_rub: int,
+        manager_comment: str,
+        manager_user_id: int,
+        group_message_id: int | None = None,
+    ) -> None:
+        await self._db.set(
+            self._key(order_number),
+            {
+                "price_rub": int(price_rub),
+                "manager_comment": manager_comment.strip(),
+                "manager_user_id": int(manager_user_id),
+                "group_message_id": int(group_message_id) if group_message_id else None,
+            },
+        )
+
+    async def clear(self, order_number: str) -> None:
+        await self._db.delete(self._key(order_number))
+
+    @staticmethod
+    def _key(order_number: str) -> str:
+        return f"buyout_quote:{order_number.strip()}"
+
+
+@dataclass(slots=True)
+class FaqMediaStore:
+    database_dsn: str
+
+    @property
+    def _db(self) -> DbSettingsStore:
+        return DbSettingsStore(self.database_dsn)
+
+    async def get_media_items(self, section_id: int) -> list[dict]:
+        payload = await self._db.get(self._key(section_id))
+        return _decode_media_items(payload)
+
+    async def save_media(
+        self,
+        section_id: int,
+        media_type: str,
+        file_id: str,
+        caption: str = "",
+        vk_attachment: str | None = None,
+        storage_chat_id: int | None = None,
+        storage_topic_id: int | None = None,
+        storage_message_id: int | None = None,
+    ) -> None:
+        items = await self.get_media_items(section_id)
+        new_item = _normalize_media_item(
+            {
+                "media_type": media_type,
+                "file_id": file_id,
+                "caption": caption.strip(),
+                "vk_attachment": (vk_attachment or "").strip(),
+                "storage_chat_id": int(storage_chat_id) if storage_chat_id else None,
+                "storage_topic_id": int(storage_topic_id) if storage_topic_id else None,
+                "storage_message_id": int(storage_message_id) if storage_message_id else None,
+            }
+        )
+        if not new_item:
+            return
+        items.append(new_item)
+        await self._db.set(self._key(section_id), {"items": items})
+
+    async def clear_media(self, section_id: int) -> None:
+        await self._db.delete(self._key(section_id))
+
+    async def remove_media_at(self, section_id: int, index: int) -> bool:
+        items = await self.get_media_items(section_id)
+        if index < 1 or index > len(items):
+            return False
+        items.pop(index - 1)
+        if items:
+            await self._db.set(self._key(section_id), {"items": items})
+        else:
+            await self._db.delete(self._key(section_id))
+        return True
+
+    @staticmethod
+    def _key(section_id: int) -> str:
+        return f"faq_media:{int(section_id)}"
 
 
 @dataclass(slots=True)

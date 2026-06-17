@@ -23,6 +23,7 @@ from app.core.container import AppContainer
 from app.domain.enums import DialogState, Platform
 from app.domain.models import OutboundMessage
 from app.services.admin_tools_service import GroupTopicsStore, ProhibitedGoodsStore, StaticContentStore
+from app.services.admin_tools_service import FaqMediaStore
 from app.services.outbound_dispatcher import OutboundDispatcher, OutboundSender
 
 logger = logging.getLogger(__name__)
@@ -90,6 +91,7 @@ async def run_vk_bot(container: AppContainer) -> None:
     tg_bot = TgBot(token=container.settings.telegram.bot_token)
     prohibited_store = ProhibitedGoodsStore(container.settings.database.dsn)
     group_topics_store = GroupTopicsStore(container.settings.database.dsn)
+    faq_media_store = FaqMediaStore(container.settings.database.dsn)
     delivery_store = StaticContentStore(
         database_dsn=container.settings.database.dsn,
         key="delivery_info",
@@ -111,6 +113,9 @@ async def run_vk_bot(container: AppContainer) -> None:
         user_key = f"vk:{user_id}"
         if text and not container.rate_limiter.allow_request(user_key, text):
             return
+        if not text and getattr(message, "attachments", None):
+            if not container.rate_limiter.allow_request(user_key, "<media>"):
+                return
         if text and not container.rate_limiter.validate_user_payload_size(len(text)):
             return
 
@@ -171,7 +176,15 @@ async def run_vk_bot(container: AppContainer) -> None:
                 lines.append("Подразделы:")
                 lines.extend([f"{item.id}. {item.title}" for item in children])
                 lines.append("Напишите: faq <id>")
-            await message.answer(_vk_text("\n".join(lines)))
+            media_items = await faq_media_store.get_media_items(section_id)
+            attachments = [str(item.get("vk_attachment")) for item in media_items if item.get("vk_attachment")]
+            if attachments:
+                await message.answer(
+                    _vk_text("\n".join(lines)),
+                    attachment=",".join(attachments),
+                )
+            else:
+                await message.answer(_vk_text("\n".join(lines)))
             return
 
         if text == "Заполнить профиль":
@@ -229,6 +242,7 @@ async def run_vk_bot(container: AppContainer) -> None:
             return
 
         if text == "Фильтры заказов":
+            await container.buyout_flow.prepare_preferences(session)
             await message.answer(
                 _vk_text(container.buyout_flow.filters_hint_text(session)),
                 keyboard=status_filters_keyboard(container.buyout_flow.filter_states(session)),
@@ -236,6 +250,7 @@ async def run_vk_bot(container: AppContainer) -> None:
             return
 
         if text.lower().startswith("фильтр "):
+            await container.buyout_flow.prepare_preferences(session)
             value = _normalize_filter_value(text[7:].strip())
             if value.lower() in {"все", "all"}:
                 await container.buyout_flow.reset_status_filters(session)

@@ -36,9 +36,9 @@ async def run() -> None:
     dispatcher = Dispatcher()
     dispatcher.include_router(build_start_router(container))
     dispatcher.include_router(build_questions_router(container))
-    dispatcher.include_router(build_profile_router(container))
     dispatcher.include_router(build_buyout_router(container))
     dispatcher.include_router(build_admin_router(container))
+    dispatcher.include_router(build_profile_router(container))
 
     backup_service = BackupService(
         database_dsn=container.settings.database.dsn,

@@ -12,7 +12,7 @@ from app.core.config import RateLimitSettings
 class UserRateState:
     second_events: Deque[datetime] = field(default_factory=deque)
     minute_events: Deque[datetime] = field(default_factory=deque)
-    last_messages: Deque[str] = field(default_factory=lambda: deque(maxlen=3))
+    last_messages: Deque[str] = field(default_factory=deque)
 
 
 class RateLimitService:
@@ -33,6 +33,8 @@ class RateLimitService:
             return False
 
         if message_text:
+            if state.last_messages.maxlen != self._settings.duplicate_message_limit:
+                state.last_messages = deque(state.last_messages, maxlen=self._settings.duplicate_message_limit)
             if len(state.last_messages) == state.last_messages.maxlen and all(
                 msg == message_text for msg in state.last_messages
             ):

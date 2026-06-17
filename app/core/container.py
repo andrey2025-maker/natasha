@@ -13,6 +13,7 @@ from app.services.profile_code_service import ProfileCodeService
 from app.services.rate_limit_service import RateLimitService
 from app.services.stats_service import StatsService
 from app.services.sync_service import SyncService
+from app.services.user_preferences_store import UserPreferencesStore
 from app.storage.interfaces import (
     CodeReserveRepository,
     AdminRepository,
@@ -72,7 +73,12 @@ def build_container(
     order_admin_service = OrderAdminService(repository=buyout_repo)
     stats_service = StatsService(profile_repo=profile_repo, buyout_repo=buyout_repo)
     profile_flow = ProfileFlowService(profile_repo, session_repo, profile_code_service, sync_service)
-    buyout_flow = BuyoutFlowService(profile_repo, session_repo, buyout_repo)
+    buyout_flow = BuyoutFlowService(
+        profile_repo,
+        session_repo,
+        buyout_repo,
+        preferences_store=UserPreferencesStore(settings.database.dsn),
+    )
 
     return AppContainer(
         settings=settings,

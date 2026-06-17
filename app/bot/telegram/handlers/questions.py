@@ -1,14 +1,19 @@
 from __future__ import annotations
 
 from aiogram import F, Router
+from aiogram.dispatcher.event.bases import SkipHandler
+from aiogram.exceptions import TelegramForbiddenError
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from app.bot.telegram.callbacks import CallbackAuthError, CallbackCodec
 from app.core.container import AppContainer
+from app.domain.enums import Platform
 from app.services.admin_tools_service import (
+    FaqMediaStore,
     ProhibitedGoodsStore,
     StaticContentStore,
+    TopicDialogStore,
     send_stored_media_to_telegram,
 )
 
@@ -17,6 +22,8 @@ def build_questions_router(container: AppContainer) -> Router:
     router = Router()
     callback_codec = CallbackCodec(container.callback_signer)
     prohibited_store = ProhibitedGoodsStore(container.settings.database.dsn)
+    topic_dialog_store = TopicDialogStore(container.settings.database.dsn)
+    faq_media_store = FaqMediaStore(container.settings.database.dsn)
     delivery_store = StaticContentStore(
         database_dsn=container.settings.database.dsn,
         key="delivery_info",
@@ -28,7 +35,7 @@ def build_questions_router(container: AppContainer) -> Router:
         default_text="Раздел контактов пока не заполнен.",
     )
 
-    @router.message(F.text.in_({"Запрещенные товары", "🚫 Запрещенные товары"}))
+    @router.message(F.chat.type == "private", F.text.in_({"Запрещенные товары", "🚫 Запрещенные товары"}))
     async def prohibited_goods(message: Message) -> None:
         text = await prohibited_store.get_text()
         media_items = await prohibited_store.get_media_items()
@@ -36,15 +43,15 @@ def build_questions_router(container: AppContainer) -> Router:
         for media in media_items:
             await send_stored_media_to_telegram(message.bot, message.chat.id, media)
 
-    @router.message(F.text.in_({"Как работает доставка", "🚚 Как работает доставка"}))
+    @router.message(F.chat.type == "private", F.text.in_({"Как работает доставка", "🚚 Как работает доставка"}))
     async def delivery_info(message: Message) -> None:
         await _send_static_content(message, delivery_store)
 
-    @router.message(F.text.in_({"Наши контакты", "☎️ Наши контакты"}))
+    @router.message(F.chat.type == "private", F.text.in_({"Наши контакты", "☎️ Наши контакты"}))
     async def contacts_info(message: Message) -> None:
         await _send_static_content(message, contacts_store)
 
-    @router.message(F.text.in_({"Вопросы", "❓ Вопросы"}))
+    @router.message(F.chat.type == "private", F.text.in_({"Вопросы", "❓ Вопросы"}))
     async def faq_root(message: Message) -> None:
         if not message.from_user:
             return
@@ -53,8 +60,65 @@ def build_questions_router(container: AppContainer) -> Router:
             user_id=message.from_user.id,
             container=container,
             codec=callback_codec,
+            faq_media_store=faq_media_store,
             section_id=None,
             edit=False,
+        )
+
+    @router.message(F.chat.type.in_({"group", "supergroup"}), F.reply_to_message, F.text)
+    async def manager_text_reply_in_topic(message: Message) -> None:
+        if not message.from_user or not message.text or not message.reply_to_message:
+            return
+        if message.text.startswith("/"):
+            return
+        if not await container.admin_service.is_admin(message.from_user.id):
+            return
+        await _relay_topic_reply_to_user(
+            message=message,
+            container=container,
+            topic_dialog_store=topic_dialog_store,
+            as_media=False,
+        )
+
+    @router.message(F.chat.type.in_({"group", "supergroup"}), F.reply_to_message, F.photo | F.video | F.animation | F.document)
+    async def manager_media_reply_in_topic(message: Message) -> None:
+        if not message.from_user or not message.reply_to_message:
+            return
+        if not await container.admin_service.is_admin(message.from_user.id):
+            return
+        await _relay_topic_reply_to_user(
+            message=message,
+            container=container,
+            topic_dialog_store=topic_dialog_store,
+            as_media=True,
+        )
+
+    @router.message(F.chat.type.in_({"group", "supergroup"}), F.text)
+    async def manager_text_in_topic(message: Message) -> None:
+        if not message.from_user or not message.text:
+            return
+        if message.text.startswith("/"):
+            return
+        if not await container.admin_service.is_admin(message.from_user.id):
+            return
+        await _relay_topic_reply_to_user(
+            message=message,
+            container=container,
+            topic_dialog_store=topic_dialog_store,
+            as_media=False,
+        )
+
+    @router.message(F.chat.type.in_({"group", "supergroup"}), F.photo | F.video | F.animation | F.document)
+    async def manager_media_in_topic(message: Message) -> None:
+        if not message.from_user:
+            return
+        if not await container.admin_service.is_admin(message.from_user.id):
+            return
+        await _relay_topic_reply_to_user(
+            message=message,
+            container=container,
+            topic_dialog_store=topic_dialog_store,
+            as_media=True,
         )
 
     @router.callback_query()
@@ -66,7 +130,7 @@ def build_questions_router(container: AppContainer) -> Router:
         except CallbackAuthError:
             return
         if not action.startswith("faq:"):
-            return
+            raise SkipHandler
 
         raw_section = action.split(":", maxsplit=1)[1]
         if raw_section == "root":
@@ -84,6 +148,7 @@ def build_questions_router(container: AppContainer) -> Router:
             user_id=callback.from_user.id,
             container=container,
             codec=callback_codec,
+            faq_media_store=faq_media_store,
             section_id=section_id,
             edit=True,
         )
@@ -96,6 +161,7 @@ async def _send_section(
     user_id: int,
     container: AppContainer,
     codec: CallbackCodec,
+    faq_media_store: FaqMediaStore,
     section_id: int | None,
     edit: bool,
 ) -> None:
@@ -131,6 +197,10 @@ async def _send_section(
             raise
     else:
         await message.answer(text, parse_mode="HTML", reply_markup=keyboard)
+    if section_id is not None:
+        media_items = await faq_media_store.get_media_items(section_id)
+        for media in media_items:
+            await send_stored_media_to_telegram(message.bot, message.chat.id, media)
 
 
 def _faq_keyboard(
@@ -178,3 +248,63 @@ async def _send_static_content(message: Message, store: StaticContentStore) -> N
     await message.answer(text, parse_mode="HTML")
     for media in media_items:
         await send_stored_media_to_telegram(message.bot, message.chat.id, media)
+
+
+async def _relay_topic_reply_to_user(
+    message: Message,
+    container: AppContainer,
+    topic_dialog_store: TopicDialogStore,
+    as_media: bool,
+) -> None:
+    platform_user = None
+    if message.reply_to_message:
+        platform_user = await topic_dialog_store.resolve_user_by_topic_message(
+            chat_id=int(message.chat.id),
+            topic_id=message.message_thread_id,
+            topic_message_id=int(message.reply_to_message.message_id),
+        )
+    if not platform_user:
+        platform_user = await topic_dialog_store.resolve_user_by_topic(
+            chat_id=int(message.chat.id),
+            topic_id=message.message_thread_id,
+        )
+    if not platform_user:
+        return
+    platform, target_user_id = platform_user
+    if platform != Platform.TELEGRAM.value:
+        return
+    try:
+        if as_media:
+            await message.bot.copy_message(
+                chat_id=target_user_id,
+                from_chat_id=message.chat.id,
+                message_id=message.message_id,
+            )
+        else:
+            text = message.text or ""
+            if not text.strip():
+                return
+            await message.bot.send_message(
+                chat_id=target_user_id,
+                text=f"💬 Ответ менеджера:\n\n{text}",
+            )
+    except Exception as exc:
+        await _mark_blocked_bot_if_needed(container, target_user_id, exc)
+        return
+    await topic_dialog_store.bind_topic_message_to_user(
+        chat_id=int(message.chat.id),
+        topic_id=message.message_thread_id,
+        topic_message_id=int(message.message_id),
+        platform=Platform.TELEGRAM.value,
+        platform_user_id=target_user_id,
+    )
+    await message.reply("✅ Отправлено клиенту")
+
+
+async def _mark_blocked_bot_if_needed(container: AppContainer, telegram_user_id: int, error: Exception) -> None:
+    if not isinstance(error, TelegramForbiddenError):
+        return
+    profile = await container.profile_repo.get_by_platform_user(Platform.TELEGRAM, telegram_user_id)
+    if profile and not profile.blocked_bot:
+        profile.blocked_bot = True
+        await container.profile_repo.save(profile)

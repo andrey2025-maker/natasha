@@ -6,6 +6,7 @@ from urllib.parse import urlparse
 
 from app.domain.enums import DeliveryFlowType, DialogState, OrderStatus, Platform
 from app.domain.models import BuyoutOrder, OrderMediaItem, OrderStatusHistoryItem, UserProfile, UserSession
+from app.services.user_preferences_store import UserPreferencesStore
 from app.storage.interfaces import BuyoutOrderRepository, SessionRepository, UserProfileRepository
 
 
@@ -23,12 +24,15 @@ class BuyoutFlowService:
         profile_repo: UserProfileRepository,
         session_repo: SessionRepository,
         order_repo: BuyoutOrderRepository,
+        preferences_store: UserPreferencesStore,
     ) -> None:
         self._profiles = profile_repo
         self._sessions = session_repo
         self._orders = order_repo
+        self._preferences = preferences_store
 
     async def start(self, session: UserSession) -> BuyoutFlowResponse:
+        await self._hydrate_preferences(session)
         profile = await self._profiles.get_by_platform_user(session.platform, session.platform_user_id)
         if not profile:
             return BuyoutFlowResponse(
@@ -97,6 +101,7 @@ class BuyoutFlowService:
         )
 
     async def handle_text(self, session: UserSession, text: str) -> BuyoutFlowResponse:
+        await self._hydrate_preferences(session)
         data = dict(session.state_data)
         if session.state == DialogState.BUYOUT_WAIT_LINK:
             if not _is_likely_url(text):
@@ -175,6 +180,7 @@ class BuyoutFlowService:
         return f"{profile.code}/{count + 1}{marketplace_letter}"
 
     async def render_orders(self, session: UserSession, page: int = 1, page_size: int = 9) -> BuyoutFlowResponse:
+        await self._hydrate_preferences(session)
         profile = await self._profiles.get_by_platform_user(session.platform, session.platform_user_id)
         if not profile:
             return BuyoutFlowResponse("Сначала заполните профиль.", DialogState.IDLE, {})
@@ -222,6 +228,7 @@ class BuyoutFlowService:
         )
 
     async def toggle_status_filter(self, session: UserSession, status: OrderStatus) -> None:
+        await self._hydrate_preferences(session)
         prefs = self._get_preferences(session)
         active = set(prefs.get("order_filters", [item.value for item in OrderStatus]))
         if status.value in active:
@@ -233,16 +240,30 @@ class BuyoutFlowService:
         prefs["order_filters"] = sorted(active)
         session.state_data = self._merge_preferences(session.state_data, prefs)
         await self._sessions.save(session)
+        await self._preferences.save_order_filters(
+            platform=session.platform,
+            platform_user_id=session.platform_user_id,
+            filters=list(prefs["order_filters"]),
+        )
 
     async def reset_status_filters(self, session: UserSession) -> None:
+        await self._hydrate_preferences(session)
         prefs = self._get_preferences(session)
         prefs["order_filters"] = [item.value for item in OrderStatus]
         session.state_data = self._merge_preferences(session.state_data, prefs)
         await self._sessions.save(session)
+        await self._preferences.save_order_filters(
+            platform=session.platform,
+            platform_user_id=session.platform_user_id,
+            filters=list(prefs["order_filters"]),
+        )
 
     def filter_states(self, session: UserSession) -> dict[OrderStatus, bool]:
         active = set(self._get_active_filter_values(session))
         return {status: status.value in active for status in OrderStatus}
+
+    async def prepare_preferences(self, session: UserSession) -> None:
+        await self._hydrate_preferences(session)
 
     def parse_filter_alias(self, raw: str) -> OrderStatus | None:
         alias = raw.strip().lower()
@@ -289,6 +310,24 @@ class BuyoutFlowService:
         merged = dict(existing)
         merged["_prefs"] = prefs
         return merged
+
+    async def _hydrate_preferences(self, session: UserSession) -> None:
+        if session.state_data.get("_prefs_loaded"):
+            return
+        prefs = self._get_preferences(session)
+        if not prefs.get("order_filters"):
+            stored = await self._preferences.get_order_filters(
+                platform=session.platform,
+                platform_user_id=session.platform_user_id,
+            )
+            if stored:
+                prefs["order_filters"] = stored
+            else:
+                prefs["order_filters"] = [item.value for item in OrderStatus]
+        merged = self._merge_preferences(session.state_data, prefs)
+        merged["_prefs_loaded"] = True
+        session.state_data = merged
+        await self._sessions.save(session)
 
     async def _save_order_media_items(self, order_id: int, raw_items: object) -> None:
         if not isinstance(raw_items, list):

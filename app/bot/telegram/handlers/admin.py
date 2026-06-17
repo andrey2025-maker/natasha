@@ -4,6 +4,7 @@ import aiohttp
 import re
 
 from aiogram import F, Router
+from aiogram.dispatcher.event.bases import SkipHandler
 from aiogram.exceptions import TelegramForbiddenError
 from aiogram.types import (
     CallbackQuery,
@@ -25,6 +26,7 @@ from app.services.admin_tools_service import (
     AdminPanelAccessStore,
     BackupService,
     BlockReasonStore,
+    FaqMediaStore,
     GroupTopicsStore,
     NotificationSettingsStore,
     PaymentReviewTargetStore,
@@ -47,6 +49,7 @@ def build_admin_router(container: AppContainer) -> Router:
     admin_access_store = AdminPanelAccessStore(container.settings.database.dsn)
     block_reason_store = BlockReasonStore(container.settings.database.dsn)
     profile_comment_store = AdminProfileCommentStore(container.settings.database.dsn)
+    faq_media_store = FaqMediaStore(container.settings.database.dsn)
     group_topics_store = GroupTopicsStore(container.settings.database.dsn)
     delivery_store = StaticContentStore(
         database_dsn=container.settings.database.dsn,
@@ -72,6 +75,7 @@ def build_admin_router(container: AppContainer) -> Router:
     @router.message(F.text.in_({"Админ", "🛠 Админ"}))
     async def admin_root(message: Message) -> None:
         if not await _ensure_admin(message):
+            await message.answer("⛔ Доступ к админ-панели только у администраторов.")
             return
         user_id = message.from_user.id
         is_main = user_id == container.settings.telegram.main_admin_id
@@ -188,11 +192,13 @@ def build_admin_router(container: AppContainer) -> Router:
         target_chat_id, target_topic_id = await group_topics_store.get_tg_topic("logs")
         _, payment_topic_id = await group_topics_store.get_tg_topic("payment")
         _, questions_topic_id = await group_topics_store.get_tg_topic("questions")
+        _, buyout_topic_id = await group_topics_store.get_tg_topic("buyout")
         vk_logs_peer_id = await group_topics_store.get_vk_logs_peer_id()
         await message.answer(
             "🛰 Техническая группа для авто-бэкапов.\n"
             f"Сейчас: chat_id={target_chat_id or 'не задан'}, logs={target_topic_id or '—'}, "
-            f"payment={payment_topic_id or '—'}, questions={questions_topic_id or '—'}\n"
+            f"payment={payment_topic_id or '—'}, questions={questions_topic_id or '—'}, "
+            f"buyout={buyout_topic_id or '—'}\n"
             f"VK logs peer_id={vk_logs_peer_id or 'не задан'}\n\n"
             "Нажмите «Задать группу» и отправьте:\n"
             "<code>-1001234567890</code>\n"
@@ -242,6 +248,7 @@ def build_admin_router(container: AppContainer) -> Router:
             topic_logs = await message.bot.create_forum_topic(chat_id=chat_id, name="логи")
             topic_payment = await message.bot.create_forum_topic(chat_id=chat_id, name="оплата")
             topic_questions = await message.bot.create_forum_topic(chat_id=chat_id, name="вопросы")
+            topic_buyout = await message.bot.create_forum_topic(chat_id=chat_id, name="выкуп")
         except Exception:
             await message.answer(
                 "Не удалось создать темы. Проверьте, что это форум-группа и у бота есть права управления темами."
@@ -251,6 +258,7 @@ def build_admin_router(container: AppContainer) -> Router:
             logs_topic_id=int(topic_logs.message_thread_id),
             payment_topic_id=int(topic_payment.message_thread_id),
             questions_topic_id=int(topic_questions.message_thread_id),
+            buyout_topic_id=int(topic_buyout.message_thread_id),
         )
         await backup_service.set_backup_target(chat_id=chat_id, topic_id=int(topic_logs.message_thread_id))
         await payment_target_store.set_target(chat_id=chat_id, topic_id=int(topic_payment.message_thread_id))
@@ -258,7 +266,8 @@ def build_admin_router(container: AppContainer) -> Router:
             "Темы созданы:\n"
             f"- логи: {topic_logs.message_thread_id}\n"
             f"- оплата: {topic_payment.message_thread_id}\n"
-            f"- вопросы: {topic_questions.message_thread_id}"
+            f"- вопросы: {topic_questions.message_thread_id}\n"
+            f"- выкуп: {topic_buyout.message_thread_id}"
         )
 
     @router.message(F.text == "Создать VK логи")
@@ -616,6 +625,7 @@ def build_admin_router(container: AppContainer) -> Router:
                 state.get("awaiting_prohibited_media"),
                 state.get("awaiting_delivery_media"),
                 state.get("awaiting_contacts_media"),
+                state.get("awaiting_faq_media_section_id"),
             ]
         ):
             await message.answer("Режим добавления медиа сейчас не активен.")
@@ -624,6 +634,7 @@ def build_admin_router(container: AppContainer) -> Router:
         state["awaiting_prohibited_media"] = False
         state["awaiting_delivery_media"] = False
         state["awaiting_contacts_media"] = False
+        state["awaiting_faq_media_section_id"] = None
         await _save_admin_utils_state(container, session, state)
         await message.answer("Добавление медиа завершено.")
 
@@ -781,6 +792,19 @@ def build_admin_router(container: AppContainer) -> Router:
             if not handled:
                 await message.answer(
                     "Сейчас ожидается медиа для раздела контактов. Используйте «Удалить медиа <номер>» или «Готово медиа»."
+                )
+            return
+        if utils_state.get("awaiting_faq_media_section_id"):
+            section_id = int(utils_state.get("awaiting_faq_media_section_id"))
+            handled = await _handle_media_text_command(
+                message=message,
+                store=faq_media_store,
+                section_name=f"FAQ {section_id}",
+                section_id=section_id,
+            )
+            if not handled:
+                await message.answer(
+                    "Сейчас ожидается медиа FAQ. Используйте «Удалить медиа <номер>» или «Готово медиа»."
                 )
             return
 
@@ -998,6 +1022,7 @@ def build_admin_router(container: AppContainer) -> Router:
                     logs_topic_id=topic_id,
                     payment_topic_id=topic_id,
                     questions_topic_id=topic_id,
+                    buyout_topic_id=topic_id,
                 )
             utils_state["awaiting_backup_target"] = False
             await _save_admin_utils_state(container, session, utils_state)
@@ -1323,6 +1348,50 @@ def build_admin_router(container: AppContainer) -> Router:
                 suffix = " и синхронизировано в VK." if vk_attachment else ". VK синхронизация не выполнена."
                 await message.answer("Медиа запрещенки добавлено" + suffix + " Отправьте ещё или «Готово медиа».")
             return
+        faq_section_id = utils_state.get("awaiting_faq_media_section_id")
+        if faq_section_id:
+            media_type = ""
+            file_id = ""
+            if message.photo:
+                media_type = "photo"
+                file_id = message.photo[-1].file_id
+            elif message.video:
+                media_type = "video"
+                file_id = message.video.file_id
+            elif message.animation:
+                media_type = "animation"
+                file_id = message.animation.file_id
+            elif message.document:
+                media_type = "document"
+                file_id = message.document.file_id
+            if media_type and file_id:
+                archive_chat_id, archive_topic_id, archive_message_id = await _archive_media_in_group_topic(
+                    message=message,
+                    group_topics_store=group_topics_store,
+                    label=f"faq_media_{faq_section_id}",
+                )
+                vk_attachment = await _sync_vk_attachment_from_tg(
+                    message=message,
+                    container=container,
+                    media_type=media_type,
+                    file_id=file_id,
+                )
+                await faq_media_store.save_media(
+                    section_id=int(faq_section_id),
+                    media_type=media_type,
+                    file_id=file_id,
+                    caption=message.caption or "",
+                    vk_attachment=vk_attachment,
+                    storage_chat_id=archive_chat_id,
+                    storage_topic_id=archive_topic_id,
+                    storage_message_id=archive_message_id,
+                )
+                await _save_admin_utils_state(container, session, utils_state)
+                suffix = " и синхронизировано в VK." if vk_attachment else ". VK синхронизация не выполнена."
+                await message.answer(
+                    f"FAQ медиа (раздел {faq_section_id}) добавлено{suffix} Отправьте ещё или «Готово медиа»."
+                )
+            return
 
         state = _get_admin_broadcast_state(session)
         if not state.get("awaiting_payload"):
@@ -1385,7 +1454,8 @@ def build_admin_router(container: AppContainer) -> Router:
         await _save_admin_utils_state(container, session, state)
         await message.answer(
             "📚 Управление FAQ.\n"
-            "Команды: «FAQ Добавить», «FAQ Ред. заголовок», «FAQ Ред. текст», «FAQ Показать root».",
+            "Команды: «FAQ Добавить», «FAQ Ред. заголовок», «FAQ Ред. текст», "
+            "«FAQ Медиа», «FAQ Очистить медиа», «FAQ Показать root».",
         )
 
     @router.message(F.text == "FAQ Добавить")
@@ -1437,6 +1507,18 @@ def build_admin_router(container: AppContainer) -> Router:
             return
         rows = [f"{item.id}. {item.title}" for item in items]
         await message.answer("FAQ root\n" + "\n".join(rows))
+
+    @router.message(F.text == "FAQ Медиа")
+    async def faq_media_help_button(message: Message) -> None:
+        if not await _ensure_admin(message):
+            return
+        await message.answer("Формат: faq media <id раздела>")
+
+    @router.message(F.text == "FAQ Очистить медиа")
+    async def faq_media_clear_help_button(message: Message) -> None:
+        if not await _ensure_admin(message):
+            return
+        await message.answer("Формат: faq media clear <id раздела>")
 
     @router.message(F.text == "Добавить админа")
     async def add_admin_help(message: Message) -> None:
@@ -1540,6 +1622,48 @@ def build_admin_router(container: AppContainer) -> Router:
             await message.answer("Раздел не найден.")
             return
         await message.answer(f"Текст обновлен для раздела {updated.id}.")
+
+    @router.message(F.text.regexp(r"^faq\s+media\s+\d+$"))
+    async def faq_media_start(message: Message) -> None:
+        if not await _ensure_admin(message):
+            return
+        if not message.from_user or not message.text:
+            return
+        section_id = int(message.text.split()[-1])
+        section = await container.faq_service.get_section(section_id)
+        if not section:
+            await message.answer("Раздел не найден.")
+            return
+        session = await container.profile_flow.get_or_create_session(Platform.TELEGRAM, message.from_user.id)
+        utils_state = _get_admin_utils_state(session)
+        _reset_admin_utils_waiters(utils_state)
+        utils_state["awaiting_faq_media_section_id"] = section_id
+        await _save_admin_utils_state(container, session, utils_state)
+        await message.answer(
+            f"Режим медиа FAQ для раздела {section_id} ({section.title}).\n"
+            "Отправьте файлы. Для завершения: «Готово медиа».\n"
+            "Удаление по индексу: faq media del <id> <index>."
+        )
+
+    @router.message(F.text.regexp(r"^faq\s+media\s+clear\s+\d+$"))
+    async def faq_media_clear(message: Message) -> None:
+        if not await _ensure_admin(message):
+            return
+        if not message.text:
+            return
+        section_id = int(message.text.split()[-1])
+        await faq_media_store.clear_media(section_id)
+        await message.answer(f"FAQ медиа очищено для раздела {section_id}.")
+
+    @router.message(F.text.regexp(r"^faq\s+media\s+del\s+\d+\s+\d+$"))
+    async def faq_media_delete(message: Message) -> None:
+        if not await _ensure_admin(message):
+            return
+        if not message.text:
+            return
+        _, _, _, section_raw, index_raw = message.text.split()
+        ok = await faq_media_store.remove_media_at(int(section_raw), int(index_raw))
+        await message.answer("Удалено." if ok else "Неверный индекс.")
 
     @router.message(F.text.regexp(r"^код\s+\d+$"))
     async def admin_profile_by_code(message: Message) -> None:
@@ -2061,6 +2185,8 @@ def build_admin_router(container: AppContainer) -> Router:
                 reply_markup=_profile_actions_keyboard(profile, callback.from_user.id, callback_codec),
             )
             return
+
+        raise SkipHandler
 
     return router
 
@@ -3125,6 +3251,7 @@ def _faq_admin_keyboard() -> ReplyKeyboardMarkup:
         keyboard=[
             [KeyboardButton(text="FAQ Добавить"), KeyboardButton(text="FAQ Ред. заголовок")],
             [KeyboardButton(text="FAQ Ред. текст"), KeyboardButton(text="FAQ Показать root")],
+            [KeyboardButton(text="FAQ Медиа"), KeyboardButton(text="FAQ Очистить медиа")],
             [KeyboardButton(text="Админ"), KeyboardButton(text="Назад")],
         ],
         resize_keyboard=True,
@@ -3283,6 +3410,11 @@ def _get_admin_utils_state(session) -> dict:
             "awaiting_codes_add": bool(block.get("awaiting_codes_add")),
             "awaiting_codes_remove": bool(block.get("awaiting_codes_remove")),
             "awaiting_faq_action": str(block.get("awaiting_faq_action")) if block.get("awaiting_faq_action") else None,
+            "awaiting_faq_media_section_id": (
+                int(block.get("awaiting_faq_media_section_id"))
+                if block.get("awaiting_faq_media_section_id")
+                else None
+            ),
             "awaiting_admin_add_id": bool(block.get("awaiting_admin_add_id")),
             "awaiting_admin_add_code": bool(block.get("awaiting_admin_add_code")),
             "awaiting_block_reason_for_code": (
@@ -3311,6 +3443,7 @@ def _get_admin_utils_state(session) -> dict:
         "awaiting_codes_add": False,
         "awaiting_codes_remove": False,
         "awaiting_faq_action": None,
+        "awaiting_faq_media_section_id": None,
         "awaiting_admin_add_id": False,
         "awaiting_admin_add_code": False,
         "awaiting_block_reason_for_code": None,
@@ -3339,6 +3472,7 @@ async def _save_admin_utils_state(container: AppContainer, session, state: dict)
         "awaiting_codes_add": bool(state.get("awaiting_codes_add")),
         "awaiting_codes_remove": bool(state.get("awaiting_codes_remove")),
         "awaiting_faq_action": state.get("awaiting_faq_action"),
+        "awaiting_faq_media_section_id": state.get("awaiting_faq_media_section_id"),
         "awaiting_admin_add_id": bool(state.get("awaiting_admin_add_id")),
         "awaiting_admin_add_code": bool(state.get("awaiting_admin_add_code")),
         "awaiting_block_reason_for_code": state.get("awaiting_block_reason_for_code"),
@@ -3373,6 +3507,7 @@ def _reset_admin_utils_waiters(state: dict) -> None:
     state["block_search_mode"] = None
     state["block_operation"] = None
     state["awaiting_faq_action"] = None
+    state["awaiting_faq_media_section_id"] = None
     state["awaiting_block_reason_for_code"] = None
     state["awaiting_profile_comment_code"] = None
 
@@ -3390,12 +3525,13 @@ _DELETE_MEDIA_RE = re.compile(r"^\s*удалить\s+медиа\s+(\d+)\s*$", re
 
 async def _handle_media_text_command(
     message: Message,
-    store: PaymentTextStore | ProhibitedGoodsStore | StaticContentStore,
+    store: PaymentTextStore | ProhibitedGoodsStore | StaticContentStore | FaqMediaStore,
     section_name: str,
+    section_id: int | None = None,
 ) -> bool:
     text = (message.text or "").strip()
     if text.lower() in {"список медиа", "медиа список"}:
-        items = await store.get_media_items()
+        items = await store.get_media_items(section_id) if section_id is not None else await store.get_media_items()
         await message.answer(
             f"Медиа {section_name}: {len(items)}\n{_media_items_summary(items)}\n"
             "Удаление: «Удалить медиа <номер>»."
@@ -3405,14 +3541,14 @@ async def _handle_media_text_command(
     if not match:
         return False
     index = int(match.group(1))
-    removed = await store.remove_media_at(index)
+    removed = await store.remove_media_at(section_id, index) if section_id is not None else await store.remove_media_at(index)
     if not removed:
-        items = await store.get_media_items()
+        items = await store.get_media_items(section_id) if section_id is not None else await store.get_media_items()
         await message.answer(
             f"Не удалось удалить медиа #{index}. Сейчас файлов: {len(items)}.\n{_media_items_summary(items)}"
         )
         return True
-    items = await store.get_media_items()
+    items = await store.get_media_items(section_id) if section_id is not None else await store.get_media_items()
     await message.answer(
         f"Медиа #{index} удалено из раздела {section_name}. Осталось: {len(items)}.\n{_media_items_summary(items)}"
     )
