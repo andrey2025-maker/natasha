@@ -71,10 +71,6 @@ def main() -> None:
     asyncio.run(run_telegram_bot())
 
 
-if __name__ == "__main__":
-    main()
-
-
 def _create_guarded_task(name: str, coro, notifier: ErrorNotifier) -> asyncio.Task:
     task = asyncio.create_task(coro)
 
@@ -89,3 +85,7 @@ def _create_guarded_task(name: str, coro, notifier: ErrorNotifier) -> asyncio.Ta
 
     task.add_done_callback(_done_callback)
     return task
+
+
+if __name__ == "__main__":
+    main()

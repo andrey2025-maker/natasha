@@ -71,13 +71,10 @@ class ProfileFlowService:
         session.state_data = _keep_prefs(session.state_data, {})
         await self._sessions.save(session)
 
-        from app.bot.telegram.keyboards.profile import profile_menu_keyboard
-
         return FlowResponse(
             text=text,
             state=DialogState.IDLE,
             state_data={},
-            reply_markup=profile_menu_keyboard(other_platform_label),
             profile=profile,
         )
 
@@ -209,7 +206,11 @@ class ProfileFlowService:
                 text=msg.confirm_profile(data["name"], data["phone"], data["city"]),
                 state=session.state,
                 state_data=data,
-                reply_markup=profile_confirm_keyboard(),
+                reply_markup=(
+                    profile_confirm_keyboard(session.platform_user_id, callback_codec)
+                    if callback_codec is not None
+                    else None
+                ),
             )
 
         if state == DialogState.PROFILE_EDIT_NAME:
@@ -223,7 +224,11 @@ class ProfileFlowService:
                 text=msg.confirm_profile(data["name"], data["phone"], data["city"]),
                 state=session.state,
                 state_data=data,
-                reply_markup=profile_confirm_keyboard(),
+                reply_markup=(
+                    profile_confirm_keyboard(session.platform_user_id, callback_codec)
+                    if callback_codec is not None
+                    else None
+                ),
             )
 
         if state == DialogState.PROFILE_EDIT_PHONE:
@@ -237,7 +242,11 @@ class ProfileFlowService:
                 text=msg.confirm_profile(data["name"], data["phone"], data["city"]),
                 state=session.state,
                 state_data=data,
-                reply_markup=profile_confirm_keyboard(),
+                reply_markup=(
+                    profile_confirm_keyboard(session.platform_user_id, callback_codec)
+                    if callback_codec is not None
+                    else None
+                ),
             )
 
         if state == DialogState.PROFILE_EDIT_CITY:
@@ -251,7 +260,11 @@ class ProfileFlowService:
                 text=msg.confirm_profile(data["name"], data["phone"], data["city"]),
                 state=session.state,
                 state_data=data,
-                reply_markup=profile_confirm_keyboard(),
+                reply_markup=(
+                    profile_confirm_keyboard(session.platform_user_id, callback_codec)
+                    if callback_codec is not None
+                    else None
+                ),
             )
 
         if state == DialogState.PROFILE_ENTER_CODE:
@@ -376,13 +389,10 @@ class ProfileFlowService:
             session.state_data = _keep_prefs(session.state_data, {})
             session.user_profile_id = profile.id
             await self._sessions.save(session)
-            from app.bot.telegram.keyboards.profile import platforms_keyboard
-
             return FlowResponse(
                 text=msg.platforms_text(),
                 state=DialogState.IDLE,
                 state_data={},
-                reply_markup=platforms_keyboard(),
                 profile=profile,
             )
 

@@ -16,62 +16,66 @@ def welcome_text() -> str:
 
 def profile_intro() -> str:
     return (
-        "Данные для удобной коммуникации с Вами: Имя, Телефон, Город получения.\n"
-        "Так же Вам выдается Код для заказов."
+        "👋 <b>Профиль клиента</b>\n\n"
+        "Для удобной коммуникации укажите: <b>Имя</b>, <b>Телефон</b>, <b>Город получения</b>.\n"
+        "После заполнения вы получите ваш <b>Код для заказов</b>."
     )
 
 
 def profile_summary(profile: UserProfile) -> str:
     return (
-        f"<b>Имя:</b> {profile.name}\n"
-        f"<b>Код:</b> {profile.code}\n"
-        f"<b>Тел:</b> {profile.phone}\n"
-        f"<b>Город:</b> {profile.city}\n"
-        f"<b>Загран паспорт:</b> {'Да' if profile.has_passport else 'Нет'}"
+        "🪪 <b>Ваш профиль</b>\n\n"
+        f"👤 <b>Имя:</b> {profile.name}\n"
+        f"🔢 <b>Код:</b> {profile.code}\n"
+        f"📞 <b>Тел:</b> {profile.phone}\n"
+        f"🏙 <b>Город:</b> {profile.city}\n"
+        f"🛂 <b>Загран паспорт:</b> {'Да' if profile.has_passport else 'Нет'}"
     )
 
 
 def ask_name() -> str:
-    return "Напишите ваше <b>имя</b>:"
+    return "📝 Напишите ваше <b>имя</b>:"
 
 
 def ask_phone(name: str) -> str:
-    return f"Ваше имя: <b>{name}</b>\nНапишите Ваш <b>номер телефона</b>:"
+    return f"✅ Ваше имя: <b>{name}</b>\n\n📞 Напишите ваш <b>номер телефона</b>:"
 
 
 def ask_city(name: str, phone: str) -> str:
     return (
-        f"Имя: <b>{name}</b>\n"
-        f"Ваш номер телефона: <b>{phone}</b>\n"
-        f"Ваш <b>город</b> куда будет осуществляться доставка:"
+        f"👤 Имя: <b>{name}</b>\n"
+        f"📞 Телефон: <b>{phone}</b>\n\n"
+        "🏙 Напишите ваш <b>город</b> получения:"
     )
 
 
 def confirm_profile(name: str, phone: str, city: str) -> str:
     return (
-        f"Имя: <b>{name}</b>\n"
-        f"Тел: <b>{phone}</b>\n"
-        f"Город: <b>{city}</b>\n\n"
-        "Всё правильно?"
+        "🔎 <b>Проверьте данные</b>\n\n"
+        f"👤 Имя: <b>{name}</b>\n"
+        f"📞 Тел: <b>{phone}</b>\n"
+        f"🏙 Город: <b>{city}</b>\n\n"
+        "Всё верно?"
     )
 
 
 def ask_has_code() -> str:
-    return "Были ли вы уже нашим клиентом и есть ли у вас код для заказов?"
+    return "❓ Вы уже были нашим клиентом и у вас есть код для заказов?"
 
 
 def enter_existing_code() -> str:
-    return "Напишите ваш код для заказов:"
+    return "🔢 Напишите ваш код для заказов:"
 
 
 def confirm_code(code: str) -> str:
-    return f"Код <b>{code}</b> указан правильно?"
+    return f"✅ Код <b>{code}</b> указан правильно?"
 
 
 def ask_passport(code: str) -> str:
     return (
-        f"Ваш код: <b>{code}</b>\n\n"
-        "Есть ли у вас загранпаспорт? Он нужен для таможенного оформления посылок."
+        f"🔐 Ваш код: <b>{code}</b>\n\n"
+        "🛂 Есть ли у вас загранпаспорт?\n"
+        "Он нужен для таможенного оформления посылок."
     )
 
 
@@ -97,68 +101,68 @@ def platforms_text() -> str:
 
 
 def code_not_found() -> str:
-    return "Код не найден. Проверьте и введите снова."
+    return "⚠️ Код не найден. Проверьте и введите снова."
 
 
 def sync_enter_profile_code() -> str:
-    return "Введите ваш код клиента, к которому уже привязан профиль ВК:"
+    return "🔗 Введите ваш код клиента, к которому уже привязан профиль ВК:"
 
 
 def sync_vk_profile_missing() -> str:
-    return "Для этого кода профиль ВК не найден. Сначала зарегистрируйтесь в ВК-боте."
+    return "⚠️ Для этого кода профиль ВК не найден.\nСначала зарегистрируйтесь в ВК-боте."
 
 
 def sync_tg_profile_missing() -> str:
-    return "Для этого кода профиль ТГ не найден. Сначала зарегистрируйтесь в Telegram-боте."
+    return "⚠️ Для этого кода профиль ТГ не найден.\nСначала зарегистрируйтесь в Telegram-боте."
 
 
 def sync_code_sent() -> str:
     return (
-        "Запрос на синхронизацию создан.\n"
-        "Код подтверждения отправлен в профиль другой платформы.\n"
-        "Введите код здесь в течение 2 минут."
+        "✅ Запрос на синхронизацию создан.\n"
+        "📨 Код подтверждения отправлен в профиль другой платформы.\n"
+        "⏳ Введите код здесь в течение 2 минут."
     )
 
 
 def sync_temporarily_blocked() -> str:
-    return "Слишком много неверных попыток. Повторите позже."
+    return "⛔ Слишком много неверных попыток. Повторите позже."
 
 
 def sync_cooldown() -> str:
-    return "Можно создавать только один запрос синхронизации в минуту."
+    return "⏱ Можно создавать только один запрос синхронизации в минуту."
 
 
 def sync_request_not_found() -> str:
-    return "Активный запрос синхронизации не найден. Запустите процесс заново."
+    return "⚠️ Активный запрос синхронизации не найден. Запустите процесс заново."
 
 
 def sync_code_invalid() -> str:
-    return "Неверный код подтверждения. Проверьте и отправьте еще раз."
+    return "❌ Неверный код подтверждения. Проверьте и отправьте еще раз."
 
 
 def sync_code_expired() -> str:
-    return "Срок действия кода истек. Запустите синхронизацию заново."
+    return "⌛ Срок действия кода истек. Запустите синхронизацию заново."
 
 
 def sync_done(profile: UserProfile) -> str:
     return (
-        "Профили успешно синхронизированы.\n\n"
-        f"<b>Имя:</b> {profile.name}\n"
-        f"<b>Код:</b> {profile.code}\n"
-        f"<b>Тел:</b> {profile.phone}\n"
-        f"<b>Город:</b> {profile.city}"
+        "🎉 Профили успешно синхронизированы.\n\n"
+        f"👤 <b>Имя:</b> {profile.name}\n"
+        f"🔢 <b>Код:</b> {profile.code}\n"
+        f"📞 <b>Тел:</b> {profile.phone}\n"
+        f"🏙 <b>Город:</b> {profile.city}"
     )
 
 
 def sync_code_for_other_platform(code: str, profile_code: str, from_platform: str) -> str:
     return (
-        "Запрос на привязку профиля.\n"
-        f"Платформа-инициатор: <b>{from_platform.upper()}</b>\n"
-        f"Код клиента: <b>{profile_code}</b>\n\n"
-        f"Код подтверждения: <b>{code}</b>\n"
+        "🔔 Запрос на привязку профиля.\n"
+        f"🧭 Платформа-инициатор: <b>{from_platform.upper()}</b>\n"
+        f"🔢 Код клиента: <b>{profile_code}</b>\n\n"
+        f"🔐 Код подтверждения: <b>{code}</b>\n"
         "Передайте этот код в диалог другой платформы."
     )
 
 
 def unknown_state() -> str:
-    return "Не удалось обработать действие. Нажмите /start."
+    return "⚙️ Не удалось обработать действие. Нажмите /start."

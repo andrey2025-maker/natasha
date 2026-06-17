@@ -9,32 +9,35 @@ from app.bot.telegram.callbacks import CallbackCodec
 
 def main_menu_keyboard(include_admin: bool = False) -> ReplyKeyboardMarkup:
     rows = [
-        [KeyboardButton(text="Профиль"), KeyboardButton(text="Как работает доставка")],
-        [KeyboardButton(text="Запрещенные товары"), KeyboardButton(text="Вопросы")],
-        [KeyboardButton(text="Наши контакты")],
+        [KeyboardButton(text="Профиль"), KeyboardButton(text="Вопросы")],
+        [KeyboardButton(text="Запрещенные товары"), KeyboardButton(text="Наши контакты")],
     ]
     if include_admin:
         rows.append([KeyboardButton(text="Админ")])
     return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True)
 
 
-def profile_menu_keyboard(other_platform_label: str) -> ReplyKeyboardMarkup:
-    return ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text="Заполнить профиль"), KeyboardButton(text="Вопросы")],
-            [KeyboardButton(text=f"Есть профиль {other_platform_label}")],
-        ],
-        resize_keyboard=True,
+def profile_menu_keyboard(other_platform_label: str, user_id: int, codec: CallbackCodec) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="📝 Заполнить профиль", callback_data=codec.encode("profile:start_fill", user_id))],
+            [InlineKeyboardButton(text=f"🔗 Есть профиль {other_platform_label}", callback_data=codec.encode("profile:start_sync", user_id))],
+            [InlineKeyboardButton(text="🛍 Заказ выкупа", callback_data=codec.encode("profile:buyout_start", user_id))],
+            [InlineKeyboardButton(text="📦 Мои заказы", callback_data=codec.encode("profile:buyout_orders", user_id))],
+        ]
     )
 
 
-def profile_confirm_keyboard() -> ReplyKeyboardMarkup:
-    return ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text="Да")],
-            [KeyboardButton(text="Имя"), KeyboardButton(text="Тел."), KeyboardButton(text="Город")],
-        ],
-        resize_keyboard=True,
+def profile_confirm_keyboard(user_id: int, codec: CallbackCodec) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="✅ Да", callback_data=codec.encode("confirm_yes", user_id))],
+            [
+                InlineKeyboardButton(text="👤 Имя", callback_data=codec.encode("edit_name", user_id)),
+                InlineKeyboardButton(text="📞 Тел.", callback_data=codec.encode("edit_phone", user_id)),
+                InlineKeyboardButton(text="🏙 Город", callback_data=codec.encode("edit_city", user_id)),
+            ],
+        ]
     )
 
 
@@ -42,21 +45,20 @@ def yes_no_keyboard(yes_action: str, no_action: str, user_id: int, codec: Callba
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text="Да", callback_data=codec.encode(yes_action, user_id)),
-                InlineKeyboardButton(text="Нет", callback_data=codec.encode(no_action, user_id)),
+                InlineKeyboardButton(text="✅ Да", callback_data=codec.encode(yes_action, user_id)),
+                InlineKeyboardButton(text="❌ Нет", callback_data=codec.encode(no_action, user_id)),
             ]
         ]
     )
 
 
-def platforms_keyboard() -> ReplyKeyboardMarkup:
-    return ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text="Заказ выкупа"), KeyboardButton(text="Мои заказы")],
-            [KeyboardButton(text="Фильтры заказов")],
-            [KeyboardButton(text="Вопросы")],
-        ],
-        resize_keyboard=True,
+def platforms_keyboard(user_id: int, codec: CallbackCodec) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="🛍 Заказ выкупа", callback_data=codec.encode("profile:buyout_start", user_id))],
+            [InlineKeyboardButton(text="📦 Мои заказы", callback_data=codec.encode("profile:buyout_orders", user_id))],
+            [InlineKeyboardButton(text="🎛 Фильтры заказов", callback_data=codec.encode("profile:buyout_filters", user_id))],
+        ]
     )
 
 

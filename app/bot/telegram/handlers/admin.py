@@ -78,16 +78,15 @@ def build_admin_router(container: AppContainer) -> Router:
         await message.answer(
             "Админ-панель.\n"
             "Разделы: Профили, Блокировки, Вопросы, Список админов.\n"
-            "Обновление статуса заказа: order status <номер> <статус> | <комментарий>",
-            reply_markup=admin_menu_keyboard(is_main_admin=is_main),
+            "Обновление статуса заказа: order status <номер> <статус> | <комментарий>\n"
+            "Нижняя клавиатура остается постоянной, команды админки выбирайте кнопками в сообщениях или текстом.",
         )
 
     @router.message(F.text == "Назад")
     async def admin_back(message: Message) -> None:
         if not await _ensure_admin(message):
             return
-        include_admin = await container.admin_service.is_admin(message.from_user.id)
-        await message.answer("Главное меню", reply_markup=main_menu_keyboard(include_admin=include_admin))
+        await message.answer("Главное меню")
 
     @router.message(F.text == "Профили")
     async def admin_profiles(message: Message) -> None:
@@ -113,8 +112,8 @@ def build_admin_router(container: AppContainer) -> Router:
         if not await _ensure_admin(message):
             return
         await message.answer(
-            "Раздел заказов: выберите тип.",
-            reply_markup=_orders_root_keyboard(),
+            "📦 Раздел заказов.\n"
+            "Используйте команды: «Выкупы» или «Самовыкуп».",
         )
 
     @router.message(F.text == "Выкупы")
@@ -159,7 +158,10 @@ def build_admin_router(container: AppContainer) -> Router:
     async def admin_utils(message: Message) -> None:
         if not await _ensure_admin(message):
             return
-        await message.answer("Утилиты админки", reply_markup=_utils_keyboard())
+        await message.answer(
+            "🧰 Утилиты админки.\n"
+            "Разделы: «Бэкапы», «Коды», «Группа», «Оплата», «Оплаты группа».",
+        )
 
     @router.message(F.text == "Бэкапы")
     async def admin_backups(message: Message) -> None:
@@ -171,7 +173,7 @@ def build_admin_router(container: AppContainer) -> Router:
         if target_chat_id:
             target_hint = f"chat_id={target_chat_id}, topic_id={target_topic_id or '—'}"
         await message.answer(
-            "Бэкапы: выгрузка БД/Excel и переключение авто-бэкапа каждые 4 часа.",
+            "🗂 Бэкапы: выгрузка БД/Excel и переключение авто-бэкапа каждые 4 часа.",
             parse_mode="HTML",
             reply_markup=_backup_keyboard(message.from_user.id, callback_codec, enabled),
         )
@@ -188,7 +190,7 @@ def build_admin_router(container: AppContainer) -> Router:
         _, questions_topic_id = await group_topics_store.get_tg_topic("questions")
         vk_logs_peer_id = await group_topics_store.get_vk_logs_peer_id()
         await message.answer(
-            "Техническая группа для авто-бэкапов.\n"
+            "🛰 Техническая группа для авто-бэкапов.\n"
             f"Сейчас: chat_id={target_chat_id or 'не задан'}, logs={target_topic_id or '—'}, "
             f"payment={payment_topic_id or '—'}, questions={questions_topic_id or '—'}\n"
             f"VK logs peer_id={vk_logs_peer_id or 'не задан'}\n\n"
@@ -197,7 +199,6 @@ def build_admin_router(container: AppContainer) -> Router:
             "или\n"
             "<code>-1001234567890 42</code> (с topic_id)",
             parse_mode="HTML",
-            reply_markup=_group_keyboard(),
         )
 
     @router.message(F.text == "Уведомления")
@@ -292,14 +293,13 @@ def build_admin_router(container: AppContainer) -> Router:
             return
         target_chat_id, target_topic_id = await payment_target_store.get_target()
         await message.answer(
-            "Группа/тема для заявок на проверку оплаты.\n"
+            "💳 Группа/тема для заявок на проверку оплаты.\n"
             f"Сейчас: chat_id={target_chat_id or 'не задан'}, topic_id={target_topic_id or '—'}\n\n"
             "Нажмите «Задать оплаты группу» и отправьте:\n"
             "<code>-1001234567890</code>\n"
             "или\n"
             "<code>-1001234567890 42</code> (с topic_id)",
             parse_mode="HTML",
-            reply_markup=_payment_group_keyboard(),
         )
 
     @router.message(F.text == "Задать оплаты группу")
@@ -342,11 +342,9 @@ def build_admin_router(container: AppContainer) -> Router:
         if len(reserved) > 40:
             preview += ", ..."
         await message.answer(
-            "Резерв кодов:\n"
+            "🔐 Резерв кодов:\n"
             f"{preview}\n\n"
-            "Используйте кнопки ниже для добавления/удаления."
-            ,
-            reply_markup=_codes_keyboard(),
+            "Команды: «Коды добавить», «Коды удалить».",
         )
 
     @router.message(F.text == "Коды добавить")
@@ -391,13 +389,12 @@ def build_admin_router(container: AppContainer) -> Router:
         media_items = await payment_store.get_media_items()
         media_line = f"Медиа: {len(media_items)}"
         await message.answer(
-            "Текущая инструкция оплаты:\n\n"
+            "💸 Текущая инструкция оплаты:\n\n"
             f"{text}\n\n"
             f"{media_line}\n"
             f"{_media_items_summary(media_items)}\n\n"
-            "Кнопки ниже: редактирование текста/медиа.\n"
+            "Команды: «Ред. оплата текст», «Ред. оплата медиа», «Очистить медиа оплаты».\n"
             "Удаление одного файла: «Удалить медиа <номер>».",
-            reply_markup=_payment_keyboard(),
         )
         for media in media_items:
             await send_stored_media_to_telegram(message.bot, message.chat.id, media)
@@ -454,12 +451,12 @@ def build_admin_router(container: AppContainer) -> Router:
         media_items = await prohibited_store.get_media_items()
         media_line = f"Медиа: {len(media_items)}"
         await message.answer(
-            "Раздел «Запрещенные товары»:\n\n"
+            "🚫 Раздел «Запрещенные товары»:\n\n"
             f"{text}\n\n"
             f"{media_line}\n"
             f"{_media_items_summary(media_items)}\n\n"
+            "Команды: «Ред. запрещенка текст», «Ред. запрещенка медиа», «Очистить медиа запрещенка».\n"
             "Удаление одного файла: «Удалить медиа <номер>».",
-            reply_markup=_prohibited_keyboard(),
         )
         for media in media_items:
             await send_stored_media_to_telegram(message.bot, message.chat.id, media)
@@ -468,7 +465,7 @@ def build_admin_router(container: AppContainer) -> Router:
     async def admin_content(message: Message) -> None:
         if not await _ensure_admin(message):
             return
-        await message.answer("Управление контентом", reply_markup=_content_keyboard())
+        await message.answer("🧩 Управление контентом.\nРазделы: «Доставка контент», «Контакты контент», «Запрещенка».")
 
     @router.message(F.text == "Доставка контент")
     async def admin_delivery_content(message: Message) -> None:
@@ -477,12 +474,12 @@ def build_admin_router(container: AppContainer) -> Router:
         text = await delivery_store.get_text()
         media_items = await delivery_store.get_media_items()
         await message.answer(
-            "Контент «Как работает доставка»:\n\n"
+            "🚚 Контент «Как работает доставка»:\n\n"
             f"{text}\n\n"
             f"Медиа: {len(media_items)}\n"
             f"{_media_items_summary(media_items)}\n\n"
+            "Команды: «Ред. доставка текст», «Ред. доставка медиа», «Очистить медиа доставка».\n"
             "Удаление одного файла: «Удалить медиа <номер>».",
-            reply_markup=_delivery_content_keyboard(),
         )
         for media in media_items:
             await send_stored_media_to_telegram(message.bot, message.chat.id, media)
@@ -494,12 +491,12 @@ def build_admin_router(container: AppContainer) -> Router:
         text = await contacts_store.get_text()
         media_items = await contacts_store.get_media_items()
         await message.answer(
-            "Контент «Наши контакты»:\n\n"
+            "☎️ Контент «Наши контакты»:\n\n"
             f"{text}\n\n"
             f"Медиа: {len(media_items)}\n"
             f"{_media_items_summary(media_items)}\n\n"
+            "Команды: «Ред. контакты текст», «Ред. контакты медиа», «Очистить медиа контакты».\n"
             "Удаление одного файла: «Удалить медиа <номер>».",
-            reply_markup=_contacts_content_keyboard(),
         )
         for media in media_items:
             await send_stored_media_to_telegram(message.bot, message.chat.id, media)
@@ -798,7 +795,6 @@ def build_admin_router(container: AppContainer) -> Router:
             await message.answer(
                 "Добавлено в резерв: "
                 + (", ".join(added) if added else "ничего (коды заняты или уже в резерве)"),
-                reply_markup=_codes_keyboard(),
             )
             return
 
@@ -812,7 +808,6 @@ def build_admin_router(container: AppContainer) -> Router:
             await _save_admin_utils_state(container, session, utils_state)
             await message.answer(
                 "Удалено из резерва: " + (", ".join(removed) if removed else "ничего не удалено"),
-                reply_markup=_codes_keyboard(),
             )
             return
 
@@ -1389,8 +1384,8 @@ def build_admin_router(container: AppContainer) -> Router:
         state["awaiting_faq_action"] = None
         await _save_admin_utils_state(container, session, state)
         await message.answer(
-            "Управление FAQ",
-            reply_markup=_faq_admin_keyboard(),
+            "📚 Управление FAQ.\n"
+            "Команды: «FAQ Добавить», «FAQ Ред. заголовок», «FAQ Ред. текст», «FAQ Показать root».",
         )
 
     @router.message(F.text == "FAQ Добавить")
