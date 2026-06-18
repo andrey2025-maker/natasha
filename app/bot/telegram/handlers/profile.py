@@ -87,9 +87,16 @@ def build_profile_router(container: AppContainer) -> Router:
                 )
             )
 
+    async def _is_blocked_user(user_id: int) -> bool:
+        profile = await container.profile_repo.get_by_platform_user(Platform.TELEGRAM, user_id)
+        return bool(profile and profile.is_blocked_by_admin)
+
     @router.message(F.text.in_({"Профиль", "👤 Профиль"}))
     async def profile_menu(message: Message) -> None:
         if not message.from_user:
+            return
+        if await _is_blocked_user(message.from_user.id):
+            await message.answer("Ваш доступ ограничен администратором. Обратитесь в поддержку.")
             return
         session = await container.profile_flow.get_or_create_session(platform, message.from_user.id)
         response = await container.profile_flow.show_profile_menu(session, other_platform_label="ВК")
@@ -100,6 +107,9 @@ def build_profile_router(container: AppContainer) -> Router:
     async def start_fill(message: Message) -> None:
         if not message.from_user:
             return
+        if await _is_blocked_user(message.from_user.id):
+            await message.answer("Ваш доступ ограничен администратором. Обратитесь в поддержку.")
+            return
         session = await container.profile_flow.get_or_create_session(platform, message.from_user.id)
         response = await container.profile_flow.start_fill(session)
         await _apply_response(message, response)
@@ -107,6 +117,9 @@ def build_profile_router(container: AppContainer) -> Router:
     @router.message(F.text.in_(CONFIRM_BUTTONS))
     async def confirm_buttons(message: Message) -> None:
         if not message.from_user or not message.text:
+            return
+        if await _is_blocked_user(message.from_user.id):
+            await message.answer("Ваш доступ ограничен администратором. Обратитесь в поддержку.")
             return
         session = await container.profile_flow.get_or_create_session(platform, message.from_user.id)
         if session.state != DialogState.PROFILE_CONFIRM:
@@ -129,6 +142,9 @@ def build_profile_router(container: AppContainer) -> Router:
     async def start_sync(message: Message) -> None:
         if not message.from_user:
             return
+        if await _is_blocked_user(message.from_user.id):
+            await message.answer("Ваш доступ ограничен администратором. Обратитесь в поддержку.")
+            return
         session = await container.profile_flow.get_or_create_session(platform, message.from_user.id)
         response = await container.profile_flow.start_sync_with_other_platform(session)
         await _apply_response(message, response)
@@ -136,6 +152,9 @@ def build_profile_router(container: AppContainer) -> Router:
     @router.callback_query()
     async def profile_callbacks(callback: CallbackQuery) -> None:
         if not callback.from_user or not callback.data or not callback.message:
+            return
+        if await _is_blocked_user(callback.from_user.id):
+            await callback.answer("Доступ ограничен", show_alert=True)
             return
         try:
             action = callback_codec.decode(callback.data, callback.from_user.id)
@@ -197,6 +216,9 @@ def build_profile_router(container: AppContainer) -> Router:
             return
         if message.chat.type != "private":
             return
+        if await _is_blocked_user(message.from_user.id):
+            await message.answer("Ваш доступ ограничен администратором. Обратитесь в поддержку.")
+            return
         session = await container.profile_flow.get_or_create_session(platform, message.from_user.id)
         if await container.admin_service.is_admin(message.from_user.id):
             return
@@ -227,6 +249,9 @@ def build_profile_router(container: AppContainer) -> Router:
         if not message.from_user or not message.text:
             return
         if message.chat.type != "private":
+            return
+        if await _is_blocked_user(message.from_user.id):
+            await message.answer("Ваш доступ ограничен администратором. Обратитесь в поддержку.")
             return
         if message.text in PROFILE_BUTTONS or message.text in CONFIRM_BUTTONS or message.text in SYNC_BUTTONS:
             return

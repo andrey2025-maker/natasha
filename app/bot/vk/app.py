@@ -120,6 +120,10 @@ async def run_vk_bot(container: AppContainer) -> None:
             return
 
         session = await container.profile_flow.get_or_create_session(Platform.VK, user_id)
+        vk_profile = await container.profile_repo.get_by_platform_user(Platform.VK, user_id)
+        if vk_profile and vk_profile.is_blocked_by_admin:
+            await message.answer("Ваш доступ ограничен администратором. Обратитесь в поддержку.")
+            return
 
         if text.lower() in {"start", "/start", "начать"}:
             await message.answer(

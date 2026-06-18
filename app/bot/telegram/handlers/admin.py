@@ -694,7 +694,7 @@ def build_admin_router(container: AppContainer) -> Router:
     @router.message()
     async def admin_order_edit_input(message: Message) -> None:
         if not await _ensure_admin(message):
-            return
+            raise SkipHandler
         if not message.from_user or not message.text:
             return
         session = await container.profile_flow.get_or_create_session(Platform.TELEGRAM, message.from_user.id)
@@ -1183,7 +1183,7 @@ def build_admin_router(container: AppContainer) -> Router:
     @router.message(F.photo | F.video | F.animation | F.document)
     async def admin_broadcast_media_input(message: Message) -> None:
         if not await _ensure_admin(message):
-            return
+            raise SkipHandler
         if not message.from_user:
             return
         session = await container.profile_flow.get_or_create_session(Platform.TELEGRAM, message.from_user.id)
@@ -1689,11 +1689,11 @@ def build_admin_router(container: AppContainer) -> Router:
         if not callback.data or not callback.from_user or not callback.message:
             return
         if not await container.admin_service.is_admin(callback.from_user.id):
-            return
+            raise SkipHandler
         try:
             action = callback_codec.decode(callback.data, callback.from_user.id)
         except CallbackAuthError:
-            return
+            raise SkipHandler
 
         if action.startswith("admin:broadcast:"):
             audience = action.split(":")[-1]

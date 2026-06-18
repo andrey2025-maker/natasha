@@ -35,8 +35,17 @@ def build_questions_router(container: AppContainer) -> Router:
         default_text="Раздел контактов пока не заполнен.",
     )
 
+    async def _is_blocked_user(user_id: int) -> bool:
+        profile = await container.profile_repo.get_by_platform_user(Platform.TELEGRAM, user_id)
+        return bool(profile and profile.is_blocked_by_admin)
+
     @router.message(F.chat.type == "private", F.text.in_({"Запрещенные товары", "🚫 Запрещенные товары"}))
     async def prohibited_goods(message: Message) -> None:
+        if not message.from_user:
+            return
+        if await _is_blocked_user(message.from_user.id):
+            await message.answer("Ваш доступ ограничен администратором. Обратитесь в поддержку.")
+            return
         text = await prohibited_store.get_text()
         media_items = await prohibited_store.get_media_items()
         await message.answer(text, parse_mode="HTML")
@@ -45,15 +54,28 @@ def build_questions_router(container: AppContainer) -> Router:
 
     @router.message(F.chat.type == "private", F.text.in_({"Как работает доставка", "🚚 Как работает доставка"}))
     async def delivery_info(message: Message) -> None:
+        if not message.from_user:
+            return
+        if await _is_blocked_user(message.from_user.id):
+            await message.answer("Ваш доступ ограничен администратором. Обратитесь в поддержку.")
+            return
         await _send_static_content(message, delivery_store)
 
     @router.message(F.chat.type == "private", F.text.in_({"Наши контакты", "☎️ Наши контакты"}))
     async def contacts_info(message: Message) -> None:
+        if not message.from_user:
+            return
+        if await _is_blocked_user(message.from_user.id):
+            await message.answer("Ваш доступ ограничен администратором. Обратитесь в поддержку.")
+            return
         await _send_static_content(message, contacts_store)
 
     @router.message(F.chat.type == "private", F.text.in_({"Вопросы", "❓ Вопросы"}))
     async def faq_root(message: Message) -> None:
         if not message.from_user:
+            return
+        if await _is_blocked_user(message.from_user.id):
+            await message.answer("Ваш доступ ограничен администратором. Обратитесь в поддержку.")
             return
         await _send_section(
             message=message,
@@ -73,12 +95,14 @@ def build_questions_router(container: AppContainer) -> Router:
             return
         if not await container.admin_service.is_admin(message.from_user.id):
             return
-        await _relay_topic_reply_to_user(
+        relayed = await _relay_topic_reply_to_user(
             message=message,
             container=container,
             topic_dialog_store=topic_dialog_store,
             as_media=False,
         )
+        if not relayed:
+            raise SkipHandler
 
     @router.message(F.chat.type.in_({"group", "supergroup"}), F.reply_to_message, F.photo | F.video | F.animation | F.document)
     async def manager_media_reply_in_topic(message: Message) -> None:
@@ -86,12 +110,14 @@ def build_questions_router(container: AppContainer) -> Router:
             return
         if not await container.admin_service.is_admin(message.from_user.id):
             return
-        await _relay_topic_reply_to_user(
+        relayed = await _relay_topic_reply_to_user(
             message=message,
             container=container,
             topic_dialog_store=topic_dialog_store,
             as_media=True,
         )
+        if not relayed:
+            raise SkipHandler
 
     @router.message(F.chat.type.in_({"group", "supergroup"}), F.text)
     async def manager_text_in_topic(message: Message) -> None:
@@ -101,12 +127,14 @@ def build_questions_router(container: AppContainer) -> Router:
             return
         if not await container.admin_service.is_admin(message.from_user.id):
             return
-        await _relay_topic_reply_to_user(
+        relayed = await _relay_topic_reply_to_user(
             message=message,
             container=container,
             topic_dialog_store=topic_dialog_store,
             as_media=False,
         )
+        if not relayed:
+            raise SkipHandler
 
     @router.message(F.chat.type.in_({"group", "supergroup"}), F.photo | F.video | F.animation | F.document)
     async def manager_media_in_topic(message: Message) -> None:
@@ -114,16 +142,21 @@ def build_questions_router(container: AppContainer) -> Router:
             return
         if not await container.admin_service.is_admin(message.from_user.id):
             return
-        await _relay_topic_reply_to_user(
+        relayed = await _relay_topic_reply_to_user(
             message=message,
             container=container,
             topic_dialog_store=topic_dialog_store,
             as_media=True,
         )
+        if not relayed:
+            raise SkipHandler
 
     @router.callback_query()
     async def faq_callbacks(callback: CallbackQuery) -> None:
         if not callback.from_user or not callback.data or not callback.message:
+            return
+        if await _is_blocked_user(callback.from_user.id):
+            await callback.answer("Доступ ограничен", show_alert=True)
             return
         try:
             action = callback_codec.decode(callback.data, callback.from_user.id)
@@ -255,7 +288,7 @@ async def _relay_topic_reply_to_user(
     container: AppContainer,
     topic_dialog_store: TopicDialogStore,
     as_media: bool,
-) -> None:
+) -> bool:
     platform_user = None
     if message.reply_to_message:
         platform_user = await topic_dialog_store.resolve_user_by_topic_message(
@@ -269,10 +302,10 @@ async def _relay_topic_reply_to_user(
             topic_id=message.message_thread_id,
         )
     if not platform_user:
-        return
+        return False
     platform, target_user_id = platform_user
     if platform != Platform.TELEGRAM.value:
-        return
+        return False
     try:
         if as_media:
             await message.bot.copy_message(
@@ -283,14 +316,14 @@ async def _relay_topic_reply_to_user(
         else:
             text = message.text or ""
             if not text.strip():
-                return
+                return False
             await message.bot.send_message(
                 chat_id=target_user_id,
                 text=f"💬 Ответ менеджера:\n\n{text}",
             )
     except Exception as exc:
         await _mark_blocked_bot_if_needed(container, target_user_id, exc)
-        return
+        return False
     await topic_dialog_store.bind_topic_message_to_user(
         chat_id=int(message.chat.id),
         topic_id=message.message_thread_id,
@@ -299,6 +332,7 @@ async def _relay_topic_reply_to_user(
         platform_user_id=target_user_id,
     )
     await message.reply("✅ Отправлено клиенту")
+    return True
 
 
 async def _mark_blocked_bot_if_needed(container: AppContainer, telegram_user_id: int, error: Exception) -> None:
